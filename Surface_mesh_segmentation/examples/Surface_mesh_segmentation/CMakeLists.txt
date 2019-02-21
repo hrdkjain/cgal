@@ -39,7 +39,7 @@ endif()
 
 
 # include for local package
-
+SET(CMAKE_BUILD_TYPE "Debug")
 
 # Creating entries for all .cpp/.C files with "main" routine
 # ##########################################################
@@ -56,6 +56,7 @@ create_single_source_cgal_program( "segmentation_from_sdf_values_SM_example.cpp"
 create_single_source_cgal_program( "segmentation_from_sdf_values_LCC_example.cpp")
 
 create_single_source_cgal_program( "extract_segmentation_into_mesh_example.cpp")
+create_single_source_cgal_program( "my_segmentation_into_mesh_example.cpp")
 
 if(OpenMesh_FOUND)
   create_single_source_cgal_program( "segmentation_from_sdf_values_OpenMesh_example.cpp" )

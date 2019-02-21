@@ -2,6 +2,7 @@
 #include <CGAL/Surface_mesh.h>
 
 #include <CGAL/Polygon_mesh_processing/triangulate_hole.h>
+#include <CGAL/Polygon_mesh_processing/measure.h>
 
 #include <iostream>
 #include <fstream>
@@ -27,11 +28,21 @@ int main(int argc, char* argv[])
     return 1;
   }
 
+
+  std::vector<halfedge_descriptor> bLHalfEdges;
+  halfedge_descriptor bhd = CGAL::Polygon_mesh_processing::longest_border(mesh).first;
+  BOOST_FOREACH(halfedge_descriptor bh, halfedges_around_face(bhd, mesh)) {
+    bLHalfEdges.push_back(bh);
+  }
+
+
   // Incrementally fill the holes
   unsigned int nb_holes = 0;
   BOOST_FOREACH(halfedge_descriptor h, halfedges(mesh))
   {
-    if(is_border(h,mesh))
+    std::vector<halfedge_descriptor>::iterator vecLoc = std::find(bLHalfEdges.begin(), bLHalfEdges.end(), h);
+
+    if(is_border(h,mesh) && vecLoc == bLHalfEdges.end())
     {
       std::vector<face_descriptor>  patch_facets;
       std::vector<vertex_descriptor> patch_vertices;
