@@ -26,7 +26,6 @@
 #ifndef CGAL_SURFACE_MESH_PARAMETERIZATION_FIXED_BORDER_ITERATIVE_PARAMETERIZER_3_H
 #define CGAL_SURFACE_MESH_PARAMETERIZATION_FIXED_BORDER_ITERATIVE_PARAMETERIZER_3_H
 
-#define NUM_ITER 10
 
 #include <CGAL/license/Surface_mesh_parameterization.h>
 
@@ -166,10 +165,10 @@ protected:
   typedef typename Solver_traits::Matrix                            Matrix;
 
   typedef boost::unordered_set<vertex_descriptor>                   Vertex_set;
-  typedef CGAL::dynamic_face_property_t<double> Face_double_tag;
-  typedef typename boost::property_map<TriangleMesh, Face_double_tag>::type Face_Double_map;
-  typedef CGAL::dynamic_vertex_property_t<double> Vertex_double_tag;
-  typedef typename boost::property_map<TriangleMesh, Vertex_double_tag>::type Vertex_Double_map;
+  typedef CGAL::dynamic_face_property_t<double>                               Face_double_tag;
+  typedef typename boost::property_map<TriangleMesh, Face_double_tag>::const_type   Face_Double_map;
+  typedef CGAL::dynamic_vertex_property_t<double>                             Vertex_double_tag;
+  typedef typename boost::property_map<TriangleMesh, Vertex_double_tag>::const_type Vertex_Double_map;
 
   // Public operations
 public:
@@ -219,7 +218,8 @@ public:
       halfedge_descriptor bhd,
       VertexUVmap uvmap,
       VertexIndexMap vimap,
-      VertexParameterizedMap vpmap)
+      VertexParameterizedMap vpmap,
+      int iterations = 10)
   {
     Error_code status = OK;
 
@@ -269,12 +269,16 @@ public:
     //typedef typename boost::property_map<TriangleMesh, Face_area_tag>::type Face_area_map;
     //Face_area_map areaMap = get(Face_area_tag(), mesh);
     //Face_Double_map
+
     areaMap = get(Face_double_tag(), mesh);
+
+    //typename TriangleMesh::Property_map<face_descriptor, double> Face_Double_map2 areaMap2 = mesh.template add_property_map<typename TriangleMesh, double>("af").first;
+
     BOOST_FOREACH(face_descriptor fd, faces(mesh))
     put(areaMap, fd, Polygon_mesh_processing::face_area(fd,mesh));
 
     // iterate it with the new weights
-    for (int i=0; i<=NUM_ITER; i++)  {
+    for (int i=0; i<=iterations; i++)  {
       //Face_Double_map
       fL2Map = get(Face_double_tag(), mesh);
       //Vertex_Double_map
@@ -290,15 +294,13 @@ public:
         if(main_border.find(v) == main_border.end())  {
           // Compute the line i of matrix A for i inner vertex
           if (i==0)
-            status = setup_inner_vertex_relations(A, Bu, Bv, mesh, v, vimap);
+            status = setup_inner_vertex_relations(A, A_prev, Bu, Bv, mesh, v, vimap);
           else
             status = setup_iter_inner_vertex_relations(A, A_prev, Bu, Bv, mesh, v, vimap);
           if(status != OK)
             return status;
         }
       }
-      copyMatrix(A, A_prev);
-
 
       // solve linear equations
       // Solve "A*Xu = Bu". On success, solution is (1/Du) * Xu.
@@ -423,6 +425,7 @@ protected:
   // virtual
   template <typename VertexIndexMap>
   Error_code setup_inner_vertex_relations(Matrix& A,
+      Matrix& A_prev,
       Vector&,
       Vector&,
       const TriangleMesh& mesh,
@@ -447,7 +450,7 @@ protected:
 
       // Set w_ij in matrix
       A.set_coef(i,j, w_ij, true /*new*/);
-
+      A_prev.set_coef(i,j, w_ij, true);
       vertexIndex++;
     }
 
