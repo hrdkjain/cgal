@@ -1,8 +1,8 @@
 // Date          : 20 Feb 2019
 // Author(s)     : Hardik Jain
 
-#ifndef CGAL_SURFACE_MESH_PARAMETERIZATION_ITERATIVE_OPTIMAL_PARAMETERIZER_3_H
-#define CGAL_SURFACE_MESH_PARAMETERIZATION_ITERATIVE_OPTIMAL_PARAMETERIZER_3_H
+#ifndef CGAL_SURFACE_MESH_PARAMETERIZATION_ITERATIVE_SMI_PARAMETERIZER_3_H
+#define CGAL_SURFACE_MESH_PARAMETERIZATION_ITERATIVE_SMI_PARAMETERIZER_3_H
 
 #include <CGAL/license/Surface_mesh_parameterization.h>
 
@@ -27,15 +27,16 @@
 #include <boost/unordered_set.hpp>
 #include <CGAL/squared_distance_2.h> //for 2D functions
 #include <CGAL/squared_distance_3.h> //for 3D functions
-/// \file Iterative_optimal_parameterizer_3.h
+/// \file Iterative_smi_parameterizer_3.h
 #define LAMDA 1
+
 namespace CGAL {
 
 namespace Surface_mesh_parameterization {
 
 /// \ingroup  PkgSurfaceMeshParameterizationMethods
 ///
-/// The class `Iterative_optimal_parameterizer_3`
+/// The class `Iterative_smi_parameterizer_3`
 /// implements the *Optimal Parameterization* algorithm. This method
 /// is sometimes called <i>OP</i> or just <i>Authalic parameterization</i> \cgalCite{cgal:dma-ipsm-02}.
 ///
@@ -75,7 +76,7 @@ namespace Surface_mesh_parameterization {
 template < class TriangleMesh_,
 class BorderParameterizer_ = Default,
 class SolverTraits_ = Default>
-class Iterative_optimal_parameterizer_3
+class Iterative_smi_parameterizer_3
     : public Fixed_border_iterative_parameterizer_3<
       TriangleMesh_,
       typename Default::Get<
@@ -145,32 +146,64 @@ private:
   typedef typename Solver_traits::Matrix                       Matrix;
 
   typedef CGAL::dynamic_face_property_t<double>                                     Face_double_tag;
-  typedef typename boost::property_map<TriangleMesh, Face_double_tag>::const_type   Face_Double_map;
+  typedef typename boost::property_map<TriangleMesh, Face_double_tag>::type   Face_Double_map;
   typedef CGAL::dynamic_vertex_property_t<double>                                   Vertex_double_tag;
   typedef typename boost::property_map<TriangleMesh, Vertex_double_tag>::const_type Vertex_Double_map;
   typedef CGAL::dynamic_vertex_property_t<Point_2>                                   Vertex_point2_tag;
-  typedef typename boost::property_map<TriangleMesh, Vertex_point2_tag>::type Vertex_point2_map;
+  typedef typename boost::property_map<TriangleMesh, Vertex_point2_tag>::const_type Vertex_point2_map;
+
+  //typedef typename TriangleMesh::Property_map<halfedge_descriptor, Point_2> SM_UV_pmap;
 
   // Public operations
 public:
   /// Constructor
-  Iterative_optimal_parameterizer_3(Border_parameterizer border_param = Border_parameterizer(),
+  Iterative_smi_parameterizer_3(Border_parameterizer border_param = Border_parameterizer(),
       ///< %Object that maps the surface's border to 2D space.
       Solver_traits sparse_la = Solver_traits())
 ///< Traits object to access a sparse linear system.
 : Fixed_border_iterative_parameterizer_3<TriangleMesh,
   Border_parameterizer,
-  Solver_traits>(border_param, sparse_la),
-  borderLength_3D(0)
+  Solver_traits>(border_param, sparse_la)
+//  ,areaMap(get(Face_double_tag(), mesh))
   {
-
   }
-
   // Default copy constructor and operator =() are fine
 
+private:
+  TriangleMesh mesh;
+  Vertex_Double_map vL2Map;
+  Face_Double_map areaMap;
+  Face_Double_map fL2Map;
   // Protected operations
 protected:
-  double borderLength_3D;
+
+  virtual NT compute_faceWise_L2(TriangleMesh& mesh, Vertex_point2_map &uvmap) {
+    fL2Map = get(Face_double_tag(), mesh);
+    BOOST_FOREACH(face_descriptor fd, faces(mesh))  {
+      Point_2 uv_points[3];
+      Point_3 mesh_points[3];
+      int i = 0;
+      BOOST_FOREACH(vertex_descriptor vd, CGAL::vertices_around_face(halfedge(fd,mesh),mesh)) {
+        uv_points[i] = get(uvmap, vd);
+        mesh_points[i] = mesh.point(vd);
+        i++;
+      }
+      put(fL2Map, fd, getfL2(mesh_points, uv_points));
+    }
+
+    return 1.0;
+  }
+
+  virtual NT compute_faceArea(TriangleMesh& mesh) {
+    // compute face area for mesh
+    //typename TriangleMesh::template Property_map<face_descriptor, double> areaMap;
+    //areaMap = mesh.add_property_map<face_descriptor, double>("f:area").first;
+    areaMap = get(Face_double_tag(), mesh);
+    BOOST_FOREACH(face_descriptor fd, faces(mesh))
+        put(areaMap, fd, Polygon_mesh_processing::face_area(fd,mesh));
+    return 1.0;
+  }
+
   /// Compute w_ij = (i, j), coefficient of matrix A for j neighbor vertex of i.
   ///
   /// \param mesh a triangulated surface.
@@ -214,40 +247,107 @@ protected:
     return weight;
   }
 
-  virtual NT compute_faceArea(TriangleMesh& mesh) {
-    return 0;
+
+  // compute_faceWise_L2
+  virtual double getfL2(Point_3 mesh_points[], Point_2 uv_points[]) const {
+    const double A = getA(uv_points);
+    Point_3 Ss = getSs(mesh_points, uv_points, A);
+    Point_3 St = getSt(mesh_points, uv_points, A);
+
+    double a = innerProduct(Ss,Ss);
+    double c = innerProduct(St,St);
+    return sqrt((a+c)/2.0);
   }
 
-  virtual NT compute_faceWise_L2(TriangleMesh& mesh, Vertex_point2_map &uvmap)  {
-    return 0;
+  double getA(Point_2 uv_points[]) const {
+    double A = (((uv_points[1].x()-uv_points[0].x())*(uv_points[2].y()-uv_points[0].y()))-((uv_points[2].x()-uv_points[0].x())*(uv_points[1].y()-uv_points[0].y())))/2;
+    if (A == 0.0)
+      return 1.0;
+    return A;
   }
 
-  virtual NT compute_vertexWise_L2(TriangleMesh& mesh, Vertex_set& vertices)  {
-    return 0;
+  Point_3 getSs(Point_3 mesh_points[3], Point_2 uv_points[3],const double &A) const {
+    double dt0 = uv_points[1].y()-uv_points[2].y();
+    double dt1 = uv_points[2].y()-uv_points[0].y();
+    double dt2 = uv_points[0].y()-uv_points[1].y();
+    Point_3 Ss (
+        (mesh_points[0].x()*dt0 + mesh_points[1].x()*dt1 + mesh_points[2].x()*dt2 )/(2.0*A),
+        (mesh_points[0].y()*dt0 + mesh_points[1].y()*dt1 + mesh_points[2].y()*dt2 )/(2.0*A),
+        (mesh_points[0].z()*dt0 + mesh_points[1].z()*dt1 + mesh_points[2].z()*dt2 )/(2.0*A));
+    return Ss;
   }
 
-  virtual NT compute_borderLength_3D(TriangleMesh& mesh)  {
-    borderLength_3D = Polygon_mesh_processing::longest_border(mesh).second;
+  Point_3 getSt(Point_3 mesh_points[3], Point_2 uv_points[3],const double &A) const  {
+    double ds0 = uv_points[2].x()-uv_points[1].x();
+    double ds1 = uv_points[0].x()-uv_points[2].x();
+    double ds2 = uv_points[1].x()-uv_points[0].x();
+    Point_3 St (
+        (mesh_points[0].x()*ds0 + mesh_points[1].x()*ds1 +mesh_points[2].x()*ds2)/(2.0*A),
+        (mesh_points[0].y()*ds0 + mesh_points[1].y()*ds1 +mesh_points[2].y()*ds2)/(2.0*A),
+        (mesh_points[0].z()*ds0 + mesh_points[1].z()*ds1 +mesh_points[2].z()*ds2)/(2.0*A));
+    return St;
+  }
+
+  double innerProduct(const Point_3& pointA, const Point_3& pointB) const {
+    return ((pointA.x())*(pointB.x()) + (pointA.y())*(pointB.y()) + (pointA.z())*(pointB.z()));
+  }
+
+
+
+  // for compute_vertexWise_L2
+  virtual NT compute_vertexWise_L2(TriangleMesh& mesh,
+      Vertex_set& vertices) {
+    // update weights for vertices
+    vL2Map = get(Vertex_double_tag(), mesh);
+    BOOST_FOREACH(vertex_descriptor v, vertices)
+        put(vL2Map, v, getvL2(mesh, v));
     return 1.0;
   }
 
+  // compute sigma to improve weights over iterations
+  double getvL2(const TriangleMesh& mesh, vertex_descriptor &vertex)  const {
+    bool debug = false;
+    if(vertex == 711111)
+      debug = true;
+    if(debug)
+      std::cout << "\t" << vertex << "\t" << std::flush;
+    halfedge_descriptor hf = halfedge(vertex, mesh);
+    if(debug)
+      std::cout << hf << "\t" << std::flush;
+    face_around_target_circulator f_j(hf, mesh), end_f_j = f_j;
+    double varphi = 0.0;
+    double localArea = 0.0;
+    int i=0;
+    CGAL_For_all(f_j, end_f_j)  {
+      if(debug)
+        std::cout << *f_j << "\t" << std::flush;
+      if(*f_j > mesh.number_of_faces())
+        continue;
+      varphi += get(fL2Map,*f_j)*get(areaMap,*f_j);
+      localArea += get(areaMap,*f_j);
+      i++;
+    }
+
+    if(debug) {
+      std::cout << varphi << "\t" << std::flush;
+      std::cout << localArea << "\t" << std::flush;
+    }
+
+    if(mesh.is_border(vertex) && mesh.degree(vertex) != i+1)
+      std::cerr << std::endl;
+    else if(!mesh.is_border(vertex) && mesh.degree(vertex) != i)
+      std::cerr << std::endl;
+    //    if(debug)
+    //      std::cout << std::endl;
+    return sqrt(varphi/localArea);
+  }
+
   virtual double compute_sig_ij(TriangleMesh& mesh, Vertex_point2_map &uvmap, vertex_descriptor v_i, vertex_descriptor v_j) {
-    //return (nedgeLength_2D(uvmap, v_i, v_j)/nedgeLength_3D(mesh, v_i, v_j));
-    return (nedgeLength_3D(mesh, v_i, v_j)/nedgeLength_2D(uvmap, v_i, v_j));
+    return (get(vL2Map,v_i)+get(vL2Map,v_j))/2.0;
   }
 
-  double nedgeLength_3D(TriangleMesh& mesh, vertex_descriptor v_i, vertex_descriptor v_j) {
-    Point_3 p_i = mesh.point(v_i);
-    Point_3 p_j = mesh.point(v_j);
-    // return normalised distance
-    return sqrt(CGAL::squared_distance(p_i,p_j))/borderLength_3D;
-  }
-
-  double nedgeLength_2D(Vertex_point2_map &uvmap, vertex_descriptor v_i, vertex_descriptor v_j) {
-    Point_2 p_i = get(uvmap, v_i);
-    Point_2 p_j = get(uvmap, v_j);
-    // return normalised distance
-    return sqrt(CGAL::squared_distance(p_i,p_j))/4.0;
+  virtual NT compute_borderLength_3D(TriangleMesh& mesh)  {
+    return 1.0;
   }
 
 };
