@@ -26,7 +26,11 @@
 #ifndef CGAL_SURFACE_MESH_PARAMETERIZATION_FIXED_BORDER_ITERATIVE_PARAMETERIZER_3_H
 #define CGAL_SURFACE_MESH_PARAMETERIZATION_FIXED_BORDER_ITERATIVE_PARAMETERIZER_3_H
 
-
+#define VDEBUG1 7111
+#define VDEBUG2 7182
+#define VDEBUG3 7169
+#define VDEBUGN 999999999
+#define DEBUG 0
 #include <CGAL/license/Surface_mesh_parameterization.h>
 
 #include <CGAL/disable_warnings.h>
@@ -50,6 +54,7 @@
 #endif
 
 #include <iostream>
+#include <iomanip>
 #include <boost/foreach.hpp>
 #include <boost/function_output_iterator.hpp>
 #include <boost/unordered_set.hpp>
@@ -165,10 +170,12 @@ protected:
   typedef typename Solver_traits::Matrix                            Matrix;
 
   typedef boost::unordered_set<vertex_descriptor>                   Vertex_set;
-  typedef CGAL::dynamic_face_property_t<double>                               Face_double_tag;
+  typedef CGAL::dynamic_face_property_t<double>                                     Face_double_tag;
   typedef typename boost::property_map<TriangleMesh, Face_double_tag>::const_type   Face_Double_map;
-  typedef CGAL::dynamic_vertex_property_t<double>                             Vertex_double_tag;
+  typedef CGAL::dynamic_vertex_property_t<double>                                   Vertex_double_tag;
   typedef typename boost::property_map<TriangleMesh, Vertex_double_tag>::const_type Vertex_Double_map;
+  typedef CGAL::dynamic_vertex_property_t<Point_2>                                   Vertex_point2_tag;
+  typedef typename boost::property_map<TriangleMesh, Vertex_point2_tag>::type Vertex_point2_map;
 
   // Public operations
 public:
@@ -211,7 +218,7 @@ public:
   /// \pre The mesh border must be mapped onto a convex polygon.
   /// \pre The vertices must be indexed (`vimap` must be initialized)
   ///
-    template <typename VertexUVmap,
+  template <typename VertexUVmap,
   typename VertexIndexMap,
   typename VertexParameterizedMap>
   Error_code parameterize(TriangleMesh& mesh,
@@ -219,7 +226,7 @@ public:
       VertexUVmap uvmap,
       VertexIndexMap vimap,
       VertexParameterizedMap vpmap,
-      int iterations = 10)
+      int iterations = 0)
   {
     Error_code status = OK;
 
@@ -240,7 +247,6 @@ public:
 
     // Compute (u,v) for border vertices and mark them as "parameterized"
     status = get_border_parameterizer().parameterize(mesh, bhd, uvmap, vimap, vpmap);
-
     if (status != OK)
       return status;
 
@@ -248,6 +254,7 @@ public:
     Matrix A(nbVertices, nbVertices);
     Matrix A_prev(nbVertices, nbVertices);
     Vector Xu(nbVertices), Xv(nbVertices), Bu(nbVertices), Bv(nbVertices);
+    double err[iterations];
 
     // Initialize A, Xu, Xv, Bu and Bv after border parameterization
     // Fill the border vertices' lines in both linear systems:
@@ -258,27 +265,34 @@ public:
     // matrix for Tutte Barycentric Mapping and Discrete Conformal Map algorithms.
     initialize_system_from_mesh_border(A, Bu, Bv, mesh, bhd, uvmap, vimap);
 
+    if(DEBUG) {
+      printMatrix(vertices, vimap, A, "A");
+      printVector(vertices, vimap, Bu, "Bu");
+      printVector(vertices, vimap, Bv, "Bv");
+    }
     // Fill the matrix for the inner vertices v_i: compute A's coefficient
     // w_ij for each neighbor j; then w_ii = - sum of w_ijs
     boost::unordered_set<vertex_descriptor> main_border;
     BOOST_FOREACH(vertex_descriptor v, vertices_around_face(bhd,mesh))
     main_border.insert(v);
 
+    // update last best uvmap wrt the border
+    lastBestuvmap = get(Vertex_point2_tag(), mesh);
+    BOOST_FOREACH(vertex_descriptor v, vertices)  {
+      // border vertices only
+      if(main_border.find(v) != main_border.end())
+        put(lastBestuvmap, v, get(uvmap, v));
+    }
+    int lastBesti = 0;
     // compute face area for mesh
-    //typedef CGAL::dynamic_face_property_t<double> Face_area_tag;
-    //typedef typename boost::property_map<TriangleMesh, Face_area_tag>::type Face_area_map;
-    //Face_area_map areaMap = get(Face_area_tag(), mesh);
-    //Face_Double_map
-
     areaMap = get(Face_double_tag(), mesh);
-
-    //typename TriangleMesh::Property_map<face_descriptor, double> Face_Double_map2 areaMap2 = mesh.template add_property_map<typename TriangleMesh, double>("af").first;
-
     BOOST_FOREACH(face_descriptor fd, faces(mesh))
     put(areaMap, fd, Polygon_mesh_processing::face_area(fd,mesh));
 
     // iterate it with the new weights
-    for (int i=0; i<=iterations; i++)  {
+    std::cout << std::endl;
+    int i=0;
+    while (i<=iterations) {
       //Face_Double_map
       fL2Map = get(Face_double_tag(), mesh);
       //Vertex_Double_map
@@ -293,13 +307,30 @@ public:
         // inner vertices only
         if(main_border.find(v) == main_border.end())  {
           // Compute the line i of matrix A for i inner vertex
-          if (i==0)
+          if (i==0) {
             status = setup_inner_vertex_relations(A, A_prev, Bu, Bv, mesh, v, vimap);
-          else
+            if(status != OK)
+              return status;
+          }
+          else  {
             status = setup_iter_inner_vertex_relations(A, A_prev, Bu, Bv, mesh, v, vimap);
-          if(status != OK)
-            return status;
+            if(status != OK)
+              return status;
+          }
         }
+      }
+
+      if(DEBUG) {
+        print(A, Xu, Bu);
+        std::cout << std::endl;
+        print(A, Xv, Bv);
+      }
+
+      BOOST_FOREACH(vertex_descriptor v, vertices)  {
+        if (v==VDEBUGN)
+          logDetails(mesh, A, v, vimap);
+        //else if (v==VDEBUGN)
+        // logDetails(mesh, A, v, vimap);
       }
 
       // solve linear equations
@@ -311,9 +342,22 @@ public:
       {
         status = ERROR_CANNOT_SOLVE_LINEAR_SYSTEM;
       }
+      else
+        LScounter = 0;
 
-      if(status != OK)
-        return status;
+      if(status != OK)  {
+        if(LScounter <3)  {
+          // modify the weights and re-try the linear solver
+          LScounter++;
+          gamma /= 2;
+          continue;
+        }
+        else  {
+          status = OK;
+          break;
+          //return status;
+        }
+      }
 
       // WARNING: this package does not support homogeneous coordinates!
       CGAL_assertion(Du == 1.0);
@@ -329,11 +373,27 @@ public:
           put(vpmap,v,true);
         }
       }
-      double err = areaDist(mesh, vertices, main_border, uvmap);
-      std::cout << " err " << err << std::endl;
+      err[i] = areaDist(mesh, vertices, main_border, uvmap);
+      std::cout << " err " << err[i] << std::flush;
+
+      if(err[i] <= err[lastBesti]) {
+        updateUVMAP(vertices, main_border, uvmap);
+        lastBesti = i;
+        std::cout << " *****" << std::endl;
+      }
+      else if (err[i]>100)
+        break;
+      else
+        std::cout << std::endl;
+      i++;
     }
-
-
+    // update the actual uvmap with the lastBestuvmap
+    BOOST_FOREACH(vertex_descriptor v, vertices)  {
+      // inner vertices only
+      if(main_border.find(v) == main_border.end()){
+        put(uvmap, v, get(lastBestuvmap, v));
+      }
+    }
     // Check postconditions
     // AF status = check_parameterize_postconditions(amesh, A, Bu, Bv);
     if(status != OK)
@@ -342,12 +402,41 @@ public:
     return status;
   }
 
+  template <typename VertexIndexMap>
+  void logDetails(const TriangleMesh& mesh, Matrix &A, vertex_descriptor vertex,
+      VertexIndexMap vimap) {
+    std::cout << "\n" << vertex << "\t" << std::flush;
+    halfedge_descriptor hf = halfedge(vertex, mesh);
+    std::cout << hf << "\t" << std::endl;
+    vertex_around_target_circulator v_j(hf, mesh), end_v_j = v_j;
+
+    int i = get(vimap,vertex);
+    CGAL_For_all(v_j, end_v_j)  {
+      int j = get(vimap,*v_j);
+      std::cout << "(" << vertex << "," << *v_j << "): " << A.get_coef(i,j) << "\t" << std::flush;
+      std::cout << "(" << *v_j << "," << vertex << "): " << A.get_coef(j,i) << "\t" << std::endl;
+    }
+    std::cout << "(" << vertex << "," << vertex << "): " << A.get_coef(i,i) << "\t" << std::endl;
+
+  }
+
+  template <typename VertexUVmap>
+  void updateUVMAP(Vertex_set &vertices, boost::unordered_set<vertex_descriptor> &main_border, VertexUVmap uvmap) {
+    BOOST_FOREACH(vertex_descriptor v, vertices)  {
+      // inner vertices only
+      if(main_border.find(v) == main_border.end())
+        put(lastBestuvmap, v, get(uvmap, v));
+    }
+  }
+
   // Protected operations
 protected:
-  //
   Face_Double_map areaMap;
   Face_Double_map fL2Map;
   Vertex_Double_map vL2Map;
+  Vertex_point2_map lastBestuvmap;
+  double gamma = 1;
+  int LScounter = 0;
 
   /// Initialize A, Bu and Bv after border parameterization.
   /// Fill the border vertices' lines in both linear systems:
@@ -403,17 +492,6 @@ protected:
       vertex_around_target_circulator neighbor_vertex_v_j) const
   = 0;
 
-  /// Compute w_ij, coefficient of matrix A for j neighbor vertex of i.
-  /// Implementation note: Subclasses must at least implement compute_w_ij().
-  ///
-  /// \param mesh a triangulated surface.
-  /// \param main_vertex_v_i the vertex of `mesh` with index `i`
-  /// \param neighbor_vertex_v_j the vertex of `mesh` with index `j`
-  virtual NT compute_iter_w_ij(const TriangleMesh& mesh,
-      vertex_descriptor main_vertex_v_i,
-      vertex_around_target_circulator neighbor_vertex_v_j) const
-  = 0;
-
   /// Compute the line i of matrix A for i inner vertex:
   /// - call compute_w_ij() to compute the A coefficient w_ij for each neighbor v_j.
   /// - compute w_ii = - sum of w_ijs.
@@ -440,8 +518,12 @@ protected:
 
     vertex_around_target_circulator v_j(halfedge(vertex, mesh), mesh), end = v_j;
     CGAL_For_all(v_j, end){
+      if(vertex == VDEBUGN && *v_j == VDEBUGN)
+        std::cout << std::flush;
       // Call to virtual method to do the actual coefficient computation
       NT w_ij = -1.0 * compute_w_ij(mesh, vertex, v_j);
+      if(w_ij > 0)
+        w_ij *= -1.0;
       // w_ii = - sum of w_ijs
       w_ii -= w_ij;
 
@@ -480,8 +562,10 @@ protected:
       vertex_descriptor vertex,
       VertexIndexMap vimap) const
   {
-    int i = get(vimap,vertex);
 
+    if(vertex == VDEBUGN)
+      std::cerr << std::flush;
+    int i = get(vimap,vertex);
     // circulate over vertices around 'vertex' to compute w_ii and w_ijs
     NT w_ii = 0;
     int vertexIndex = 0;
@@ -492,7 +576,8 @@ protected:
       // Get j index
       int j = get(vimap, *v_j);
       // Call to virtual method to do the actual coefficient computation
-      NT w_ij = A_prev.get_coef(i,j) / compute_sig_ij(vertex, *v_j);
+      NT w_ij = A_prev.get_coef(i,j) / pow(compute_sig_ij(vertex, *v_j),gamma);
+      //NT w_ij = A_prev.get_coef(i,j) / compute_sig_ij(vertex, *v_j) / gamma;
       // w_ii = - sum of w_ijs
       w_ii -= w_ij;
 
@@ -590,6 +675,7 @@ protected:
 
   double compute_sig_ij(vertex_descriptor v_i, vertex_descriptor v_j) const {
     return (get(vL2Map,v_i)+get(vL2Map,v_j))/2.0;
+
   }
 
   // Measure parameterisation distortion
@@ -673,26 +759,89 @@ protected:
 
   // compute sigma to improve weights over iterations
   double getvL2(const TriangleMesh& mesh, vertex_descriptor &vertex)  const {
+    bool debug = false;
+    if(vertex == 711111)
+      debug = true;
+    if(debug)
+      std::cout << "\t" << vertex << "\t" << std::flush;
     halfedge_descriptor hf = halfedge(vertex, mesh);
+    if(debug)
+      std::cout << hf << "\t" << std::flush;
     face_around_target_circulator f_j(hf, mesh), end_f_j = f_j;
     double varphi = 0.0;
     double localArea = 0.0;
+    int i=0;
     CGAL_For_all(f_j, end_f_j)  {
+      if(debug)
+        std::cout << *f_j << "\t" << std::flush;
       if(*f_j > mesh.number_of_faces())
         continue;
       varphi += get(fL2Map,*f_j)*get(areaMap,*f_j);
       localArea += get(areaMap,*f_j);
+      i++;
     }
+
+    if(debug) {
+      std::cout << varphi << "\t" << std::flush;
+      std::cout << localArea << "\t" << std::flush;
+    }
+
+    if(mesh.is_border(vertex) && mesh.degree(vertex) != i+1)
+      std::cerr << std::endl;
+    else if(!mesh.is_border(vertex) && mesh.degree(vertex) != i)
+      std::cerr << std::endl;
+    //    if(debug)
+    //      std::cout << std::endl;
     return sqrt(varphi/localArea);
+
   }
 
-  void copyMatrix(Matrix &src, Matrix &dest)  {
-    assert(src.row_dimension() == dest.row_dimension());
-    assert(src.column_dimension () == dest.column_dimension ());
-    for (int r = 0; r < src.row_dimension(); r++) {
-      for (int c = 0; c < src.column_dimension (); c++) {
-        dest.set_coef(r,c,src.get_coef(r,c));
+  template <typename VertexIndexMap>
+  void printMatrix(Vertex_set &vertices, VertexIndexMap& vimap, Matrix &A, std::string name)  {
+    std::cout << "Matrix " << name << "(" << A.row_dimension() << "x" << A.column_dimension() << ")" << std::endl;
+    Matrix A1(A.row_dimension(), A.column_dimension());
+    int r=0,c=0;
+    BOOST_FOREACH(vertex_descriptor v1,vertices) {
+      int i = get(vimap, v1);
+      BOOST_FOREACH(vertex_descriptor v2,vertices){
+        int j = get(vimap, v2);
+        A1.set_coef(r,c,A.get_coef(i,j));
+        c++;
       }
+      r++; c = 0;
+    }
+
+    for(int r = 0; r < A.row_dimension(); r++)  {
+      for(int c = 0; c < A.column_dimension(); c++)  {
+        std::cout << std::setw(10) << A1.get_coef(r,c) << "\t" << std::flush;
+      }
+      std::cout << std::endl;
+    }
+
+  }
+
+  template <typename VertexIndexMap>
+  void printVector(Vertex_set &vertices, VertexIndexMap& vimap, Vector &A, std::string name)  {
+    std::cout << "Vector " << name << "(" << A.size() << ")" << std::endl;
+    Vector A1(A.size());
+    int r = 0;
+    BOOST_FOREACH(vertex_descriptor v1,vertices) {
+      int i = get(vimap,v1);
+      A1.set(r, A(i));
+      r++;
+    }
+    for(int r = 0; r < A.size(); r++)  {
+      std::cout << A1(r) << std::endl;
+    }
+  }
+
+  void print(Matrix& A, Vector &Xu, Vector&Bu)  {
+    std::cout << "Matrix " << "(" << A.row_dimension() << "x" << A.column_dimension() << ")" << std::endl;
+    for(int r = 0; r < A.row_dimension(); r++)  {
+      for(int c = 0; c < A.column_dimension(); c++)  {
+        std::cout << std::setw(10) << A.get_coef(r,c) << "\t" << std::flush;
+      }
+      std::cout << "\t\t"  << Xu(r) << "\t\t" << Bu(r) << std::endl;
     }
   }
 
