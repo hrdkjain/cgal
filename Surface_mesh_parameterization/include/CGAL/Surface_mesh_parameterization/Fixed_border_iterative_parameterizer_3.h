@@ -281,7 +281,7 @@ public:
     // create a new uvmap
     Vertex_point2_map uvmap = get(Vertex_point2_tag(),mesh);
     BOOST_FOREACH(vertex_descriptor v, vertices)  {
-        put(uvmap, v, get(uvmap1, v));
+      put(uvmap, v, get(uvmap1, v));
     }
 
     // update last best uvmap wrt the border
@@ -307,7 +307,7 @@ public:
       if (i!=0) {
         compute_faceWise_L2(mesh, uvmap);
         compute_vertexWise_L2(mesh, vertices);
-//        compute_edgeLength_2D(mesh, uvmap);
+        //        compute_edgeLength_2D(mesh, uvmap);
       }
       // update weights for inner vertices
       BOOST_FOREACH(vertex_descriptor v, vertices)  {
@@ -353,7 +353,7 @@ public:
         LScounter = 0;
 
       if(status != OK)  {
-        if(LScounter <3)  {
+        if(LScounter <4)  {
           // modify the weights and re-try the linear solver
           LScounter++;
           gamma /= 2;
@@ -369,6 +369,9 @@ public:
       // WARNING: this package does not support homogeneous coordinates!
       CGAL_assertion(Du == 1.0);
       CGAL_assertion(Dv == 1.0);
+
+      // Copy A to A_prev, it is a computationally inefficient task but neccesary
+      copySparseMatrix(mesh, vertices, vimap, A, A_prev);
 
       // Copy Xu and Xv coordinates into the (u,v) pair of each vertex
       BOOST_FOREACH(vertex_descriptor v, vertices)
@@ -407,7 +410,7 @@ public:
       return status;
 
     BOOST_FOREACH(vertex_descriptor v, vertices)  {
-        put(uvmap1, v, get(uvmap, v));
+      put(uvmap1, v, get(uvmap, v));
     }
     return status;
   }
@@ -431,7 +434,7 @@ public:
 
   }
 
-//  template <typename VertexUVmap>
+  //  template <typename VertexUVmap>
   void updateUVMAP(Vertex_set &vertices, boost::unordered_set<vertex_descriptor> &main_border, Vertex_point2_map uvmap) {
     BOOST_FOREACH(vertex_descriptor v, vertices)  {
       // inner vertices only
@@ -608,7 +611,7 @@ protected:
 
       // Set w_ij in matrix
       A.set_coef(i,j, w_ij, false);
-      A_prev.set_coef(i,j, w_ij, false);
+      //A_prev.set_coef(i,j, w_ij, false);
       vertexIndex++;
     }
 
@@ -706,7 +709,19 @@ protected:
     return sum;
   }
 
-
+  template <typename VertexIndexMap>
+  void copySparseMatrix(TriangleMesh& mesh, Vertex_set &vertices, VertexIndexMap& vimap, Matrix &src, Matrix &dest) {
+    assert(src.row_dimension()==dest.row_dimension());
+    assert(src.column_dimension()==dest.column_dimension());
+    BOOST_FOREACH(vertex_descriptor vertex, vertices)  {
+      int i = get(vimap,vertex);
+      vertex_around_target_circulator v_j(halfedge(vertex, mesh), mesh), end = v_j;
+      CGAL_For_all(v_j, end){
+        int j = get(vimap, *v_j);
+        dest.set_coef(i,j, src.get_coef(i,j), false);
+      }
+    }
+  }
 
   template <typename VertexIndexMap>
   void printMatrix(Vertex_set &vertices, VertexIndexMap& vimap, Matrix &A, std::string name)  {

@@ -343,7 +343,10 @@ protected:
   }
 
   virtual double compute_sig_ij(TriangleMesh& mesh, Vertex_point2_map &uvmap, vertex_descriptor v_i, vertex_descriptor v_j) {
-    return (get(vL2Map,v_i)+get(vL2Map,v_j))/2.0;
+    double out = (get(vL2Map,v_i)+get(vL2Map,v_j))/2.0;
+    if(out <= 0.0)
+      std::cout << "compute_sig_ij <= 0.0" << std::endl;
+    return out;
   }
 
   virtual NT compute_borderLength_3D(TriangleMesh& mesh)  {
