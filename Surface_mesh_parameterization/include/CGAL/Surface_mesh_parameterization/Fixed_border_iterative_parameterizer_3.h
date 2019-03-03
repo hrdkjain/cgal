@@ -228,7 +228,8 @@ public:
       VertexUVmap uvmap1,
       VertexIndexMap vimap,
       VertexParameterizedMap vpmap,
-      int iterations = 0)
+      int& iterations,
+      double& error)
   {
     Error_code status = OK;
 
@@ -291,11 +292,13 @@ public:
       if(main_border.find(v) != main_border.end())
         put(lastBestuvmap, v, get(uvmap, v));
     }
+
     int lastBesti = 0;
     compute_faceArea(mesh);
     compute_borderLength_3D(mesh);
 
     // iterate it with the new weights
+    if(DEBUG)
     std::cout << std::endl;
     int i=0;
     while (i<=iterations) {
@@ -303,7 +306,8 @@ public:
       //fL2Map = get(Face_double_tag(), mesh);
       //Vertex_Double_map
       //vL2Map = get(Vertex_double_tag(), mesh);
-      std::cout << "Iteration " << i << std::flush;
+      if(DEBUG)
+        std::cout << "Iteration " << i << std::flush;
       if (i!=0) {
         compute_faceWise_L2(mesh, uvmap);
         compute_vertexWise_L2(mesh, vertices);
@@ -384,34 +388,39 @@ public:
         }
       }
       err[i] = areaDist(mesh, vertices, main_border, uvmap);
-      std::cout << " err " << err[i] << std::flush;
+      if(DEBUG)
+        std::cout << " err " << err[i] << std::flush;
 
       if(err[i] <= err[lastBesti]) {
         updateUVMAP(vertices, main_border, uvmap);
         lastBesti = i;
-        std::cout << " *****" << std::endl;
+        if(DEBUG)
+          std::cout << " *****" << std::endl;
       }
-      else if (err[i]>100)
+      else if (err[i]>100)  {
         break;
-      else
-        std::cout << std::endl;
+      }
       i++;
     }
-    // update the actual uvmap with the lastBestuvmap
-    BOOST_FOREACH(vertex_descriptor v, vertices)  {
-      // inner vertices only
-      if(main_border.find(v) == main_border.end()){
-        put(uvmap, v, get(lastBestuvmap, v));
-      }
-    }
+
     // Check postconditions
     // AF status = check_parameterize_postconditions(amesh, A, Bu, Bv);
     if(status != OK)
       return status;
-
+    /*
+    // update the actual uvmap with the lastBestuvmap
     BOOST_FOREACH(vertex_descriptor v, vertices)  {
-      put(uvmap1, v, get(uvmap, v));
+      // border vertices only
+      if(main_border.find(v) == main_border.end()){
+        put(uvmap, v, get(lastBestuvmap, v));
+      }
     }
+     */
+    BOOST_FOREACH(vertex_descriptor v, vertices)  {
+      put(uvmap1, v, get(lastBestuvmap, v));
+    }
+    iterations = lastBesti;
+    error = err[lastBesti];
     return status;
   }
 
@@ -544,8 +553,6 @@ protected:
 
     vertex_around_target_circulator v_j(halfedge(vertex, mesh), mesh), end = v_j;
     CGAL_For_all(v_j, end){
-      if(vertex == VDEBUGN && *v_j == VDEBUGN)
-        std::cout << std::flush;
       // Call to virtual method to do the actual coefficient computation
       NT w_ij = -1.0 * compute_w_ij(mesh, vertex, v_j);
       if(w_ij > 0)
