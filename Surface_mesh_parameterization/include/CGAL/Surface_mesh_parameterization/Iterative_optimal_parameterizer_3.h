@@ -145,11 +145,13 @@ private:
   typedef typename Solver_traits::Matrix                       Matrix;
 
   typedef CGAL::dynamic_face_property_t<double>                                     Face_double_tag;
-  typedef typename boost::property_map<TriangleMesh, Face_double_tag>::const_type   Face_Double_map;
+  typedef typename boost::property_map<TriangleMesh, Face_double_tag>::type         Face_Double_map;
   typedef CGAL::dynamic_vertex_property_t<double>                                   Vertex_double_tag;
   typedef typename boost::property_map<TriangleMesh, Vertex_double_tag>::const_type Vertex_Double_map;
-  typedef CGAL::dynamic_vertex_property_t<Point_2>                                   Vertex_point2_tag;
-  typedef typename boost::property_map<TriangleMesh, Vertex_point2_tag>::type Vertex_point2_map;
+  typedef CGAL::dynamic_vertex_property_t<int>                                      Vertex_int_tag;
+  typedef typename boost::property_map<TriangleMesh, Vertex_int_tag>::const_type    Vertex_Int_map;
+  typedef CGAL::dynamic_vertex_property_t<Point_2>                                  Vertex_point2_tag;
+  typedef typename boost::property_map<TriangleMesh, Vertex_point2_tag>::const_type Vertex_point2_map;
 
   // Public operations
 public:
@@ -170,13 +172,73 @@ public:
 
   // Protected operations
 protected:
+  virtual NT compute_faceArea(TriangleMesh& mesh) {
+    return 0;
+  }
+
+  virtual NT compute_borderLength_3D(TriangleMesh& mesh)  {
+    borderLength_3D = Polygon_mesh_processing::longest_border(mesh).second;
+    return 1.0;
+  }
+
+  virtual NT compute_faceWise_L2(TriangleMesh& mesh, Vertex_point2_map &uvmap)  {
+    return 0;
+  }
+
+  virtual NT compute_vertexWise_L2(TriangleMesh& mesh, Vertex_set& vertices)  {
+    return 0;
+  }
+
+  /// Compute the line i of matrix A for i inner vertex:
+  virtual Error_code setup_inner_vertex_relations(Matrix& A,
+      Matrix& A_prev,
+      Vector&,
+      Vector&,
+      const TriangleMesh& mesh,
+      vertex_descriptor vertex,
+      Vertex_Int_map& vimap)
+  {
+    int i = get(vimap,vertex);
+
+    // circulate over vertices around 'vertex' to compute w_ii and w_ijs
+    NT w_ii = 0;
+    int vertexIndex = 0;
+
+    vertex_around_target_circulator v_j(halfedge(vertex, mesh), mesh), end = v_j;
+    CGAL_For_all(v_j, end){
+      // Call to virtual method to do the actual coefficient computation
+      NT w_ij = -1.0 * compute_w_ij(mesh, vertex, v_j);
+      if(w_ij > 0)
+        w_ij *= -1.0;
+      // w_ii = - sum of w_ijs
+      w_ii -= w_ij;
+
+      // Get j index
+      int j = get(vimap, *v_j);
+
+      // Set w_ij in matrix
+      A.set_coef(i,j, w_ij, true /*new*/);
+      A_prev.set_coef(i,j, w_ij, true);
+      vertexIndex++;
+    }
+
+    if (vertexIndex < 2)
+      return ERROR_NON_TRIANGULAR_MESH;
+
+    // Set w_ii in matrix
+    A.set_coef(i,i, w_ii, true /*new*/);
+    return OK;
+  }
+
+
+private:
   double borderLength_3D;
   /// Compute w_ij = (i, j), coefficient of matrix A for j neighbor vertex of i.
   ///
   /// \param mesh a triangulated surface.
   /// \param main_vertex_v_i the vertex of `mesh` with index `i`
   /// \param neighbor_vertex_v_j the vertex of `mesh` with index `j`
-  virtual NT compute_w_ij(const TriangleMesh& mesh,
+  NT compute_w_ij(const TriangleMesh& mesh,
       vertex_descriptor main_vertex_v_i,
       vertex_around_target_circulator neighbor_vertex_v_j) const
   {
@@ -214,24 +276,7 @@ protected:
     return weight;
   }
 
-  virtual NT compute_faceArea(TriangleMesh& mesh) {
-    return 0;
-  }
-
-  virtual NT compute_faceWise_L2(TriangleMesh& mesh, Vertex_point2_map &uvmap)  {
-    return 0;
-  }
-
-  virtual NT compute_vertexWise_L2(TriangleMesh& mesh, Vertex_set& vertices)  {
-    return 0;
-  }
-
-  virtual NT compute_borderLength_3D(TriangleMesh& mesh)  {
-    borderLength_3D = Polygon_mesh_processing::longest_border(mesh).second;
-    return 1.0;
-  }
-
-  virtual double compute_sig_ij(TriangleMesh& mesh, Vertex_point2_map &uvmap, vertex_descriptor v_i, vertex_descriptor v_j) {
+  double compute_sig_ij(TriangleMesh& mesh, Vertex_point2_map &uvmap, vertex_descriptor v_i, vertex_descriptor v_j) {
     //return (nedgeLength_2D(uvmap, v_i, v_j)/nedgeLength_3D(mesh, v_i, v_j));
     return (nedgeLength_3D(mesh, v_i, v_j)/nedgeLength_2D(uvmap, v_i, v_j));
   }

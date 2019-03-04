@@ -22,6 +22,7 @@
 
 #include <iostream>
 #include <iomanip>
+#include <math.h>
 #include <boost/foreach.hpp>
 #include <boost/function_output_iterator.hpp>
 #include <boost/unordered_set.hpp>
@@ -29,7 +30,6 @@
 #include <CGAL/squared_distance_3.h> //for 3D functions
 /// \file Iterative_smi_parameterizer_3.h
 #define LAMDA 1
-
 namespace CGAL {
 
 namespace Surface_mesh_parameterization {
@@ -146,10 +146,12 @@ private:
   typedef typename Solver_traits::Matrix                       Matrix;
 
   typedef CGAL::dynamic_face_property_t<double>                                     Face_double_tag;
-  typedef typename boost::property_map<TriangleMesh, Face_double_tag>::type   Face_Double_map;
+  typedef typename boost::property_map<TriangleMesh, Face_double_tag>::type         Face_Double_map;
   typedef CGAL::dynamic_vertex_property_t<double>                                   Vertex_double_tag;
   typedef typename boost::property_map<TriangleMesh, Vertex_double_tag>::const_type Vertex_Double_map;
-  typedef CGAL::dynamic_vertex_property_t<Point_2>                                   Vertex_point2_tag;
+  typedef CGAL::dynamic_vertex_property_t<int>                                      Vertex_int_tag;
+  typedef typename boost::property_map<TriangleMesh, Vertex_int_tag>::const_type    Vertex_Int_map;
+  typedef CGAL::dynamic_vertex_property_t<Point_2>                                  Vertex_point2_tag;
   typedef typename boost::property_map<TriangleMesh, Vertex_point2_tag>::const_type Vertex_point2_map;
 
   //typedef typename TriangleMesh::Property_map<halfedge_descriptor, Point_2> SM_UV_pmap;
@@ -164,18 +166,27 @@ public:
 : Fixed_border_iterative_parameterizer_3<TriangleMesh,
   Border_parameterizer,
   Solver_traits>(border_param, sparse_la)
-//  ,areaMap(get(Face_double_tag(), mesh))
+  //  ,areaMap(get(Face_double_tag(), mesh))
   {
   }
   // Default copy constructor and operator =() are fine
 
-private:
-  TriangleMesh mesh;
-  Vertex_Double_map vL2Map;
-  Face_Double_map areaMap;
-  Face_Double_map fL2Map;
   // Protected operations
 protected:
+
+  virtual NT compute_faceArea(TriangleMesh& mesh) {
+    // compute face area for mesh
+    //typename TriangleMesh::template Property_map<face_descriptor, double> areaMap;
+    //areaMap = mesh.add_property_map<face_descriptor, double>("f:area").first;
+    areaMap = get(Face_double_tag(), mesh);
+    BOOST_FOREACH(face_descriptor fd, faces(mesh))
+    put(areaMap, fd, Polygon_mesh_processing::face_area(fd,mesh));
+    return 1.0;
+  }
+
+  virtual NT compute_borderLength_3D(TriangleMesh& mesh)  {
+    return 1.0;
+  }
 
   virtual NT compute_faceWise_L2(TriangleMesh& mesh, Vertex_point2_map &uvmap) {
     fL2Map = get(Face_double_tag(), mesh);
@@ -190,66 +201,139 @@ protected:
       }
       put(fL2Map, fd, getfL2(mesh_points, uv_points));
     }
-
     return 1.0;
   }
 
-  virtual NT compute_faceArea(TriangleMesh& mesh) {
-    // compute face area for mesh
-    //typename TriangleMesh::template Property_map<face_descriptor, double> areaMap;
-    //areaMap = mesh.add_property_map<face_descriptor, double>("f:area").first;
-    areaMap = get(Face_double_tag(), mesh);
-    BOOST_FOREACH(face_descriptor fd, faces(mesh))
-        put(areaMap, fd, Polygon_mesh_processing::face_area(fd,mesh));
+  virtual NT compute_vertexWise_L2(TriangleMesh& mesh,
+      Vertex_set& vertices) {
+    // update weights for vertices
+    vL2Map = get(Vertex_double_tag(), mesh);
+    BOOST_FOREACH(vertex_descriptor v, vertices)
+    put(vL2Map, v, getvL2(mesh, v));
     return 1.0;
   }
 
-  /// Compute w_ij = (i, j), coefficient of matrix A for j neighbor vertex of i.
-  ///
-  /// \param mesh a triangulated surface.
-  /// \param main_vertex_v_i the vertex of `mesh` with index `i`
-  /// \param neighbor_vertex_v_j the vertex of `mesh` with index `j`
-  virtual NT compute_w_ij(const TriangleMesh& mesh,
-      vertex_descriptor main_vertex_v_i,
-      vertex_around_target_circulator neighbor_vertex_v_j) const
+  virtual Error_code setup_inner_vertex_relations(Matrix& A,
+      Matrix& A_prev,
+      Vector&,
+      Vector&,
+      const TriangleMesh& mesh,
+      vertex_descriptor vertex,
+      Vertex_Int_map& vimap)
   {
-    const PPM ppmap = get(vertex_point, mesh);
+    const int i = get(vimap,vertex);
 
-    const Point_3& position_v_i = get(ppmap, main_vertex_v_i);
-    const Point_3& position_v_j = get(ppmap, *neighbor_vertex_v_j);
-
-    // Compute the square norm of v_j -> v_i vector
-    Vector_3 edge = position_v_i - position_v_j;
-    double square_len = edge*edge;
-
-    // Compute cotangent of (v_k,v_j,v_i) corner (i.e. cotan of v_j corner)
-    // if v_k is the vertex before v_j when circulating around v_i
-    vertex_around_target_circulator previous_vertex_v_k = neighbor_vertex_v_j;
-    previous_vertex_v_k--;
-    const Point_3& position_v_k = get(ppmap, *previous_vertex_v_k);
-    NT cotg_psi_ij = internal::cotangent<Kernel>(position_v_k, position_v_j, position_v_i);
-    NT cotg_beta_ij = internal::cotangent<Kernel>(position_v_i, position_v_k, position_v_j);
-
-    // Compute cotangent of (v_i,v_j,v_l) corner (i.e. cotan of v_j corner)
-    // if v_l is the vertex after v_j when circulating around v_i
-    vertex_around_target_circulator next_vertex_v_l = neighbor_vertex_v_j;
-    next_vertex_v_l++;
-    const Point_3& position_v_l = get(ppmap,*next_vertex_v_l);
-    NT cotg_theta_ij = internal::cotangent<Kernel>(position_v_i, position_v_j, position_v_l);
-    NT cotg_alpha_ij = internal::cotangent<Kernel>(position_v_j, position_v_l, position_v_i);
-
-    NT weight = 0.0;
-    CGAL_assertion(square_len != 0.0); // two points are identical!
-    if(square_len != 0.0) {
-      weight = LAMDA * (cotg_beta_ij + cotg_alpha_ij);
-      weight += (1-LAMDA) * ((cotg_psi_ij + cotg_theta_ij) / square_len);
+    // circulate over vertices around 'vertex' to compute w_ii and w_ijs
+    NT w_ii = 0;
+    vertex_around_target_circulator v_j(halfedge(vertex, mesh), mesh), end_v_j = v_j;
+    std::vector<NeighborList> NeighborList_;
+    /*
+      std::vector<std::tuple<vertex_descriptor, double, Point_2> >neighbors;
+      std::vector<vertex_descriptor> neighborsVertex;
+      std::vector<Vector_3> neighborsVector;
+      std::vector<double> neighborsLength;
+      std::vector<double> neighborsAngle;
+     */
+    int neighborsCounter = 0;
+    double theta_sum = 0.0;
+    CGAL_For_all(v_j, end_v_j)  {
+      NeighborList NL;
+      NL.vertex = *v_j;
+      NL.vector = Vector_3(mesh.point(vertex),mesh.point(*v_j));
+      NL.length = sqrt(NL.vector.squared_length());
+      double theta;
+      if(NeighborList_.empty())
+        theta = 0.0;
+      else
+        theta = angle(NL.vector,NeighborList_[neighborsCounter-1].vector);
+      NL.angle = theta;
+      theta_sum += theta;
+      NeighborList_.push_back(NL);
+      neighborsCounter++;
+      //     neighborsVertex.push_back(*v_j);
+      //     neighborsVector.push_back(V);
+      //     neighborsLength.push_back(sqrt(V.squared_length()));
+      //      neighborsAngle.push_back(angle);
     }
-    return weight;
+
+    // Normalise the angle
+    double factor = 2.0  / theta_sum;
+    factor *= M_PI;
+    for(int n=0; n<neighborsCounter; n++)
+      NeighborList_[n].angle *= factor;
+    assert(NeighborList_[0].angle == 0.0);
+    for(int n=1; n<neighborsCounter; n++)
+      NeighborList_[n].angle += NeighborList_[n-1].angle;
+    for(int n=0; n<neighborsCounter; n++)
+      NeighborList_[n].uv = Point_2(NeighborList_[n].length*cos(NeighborList_[n].angle), NeighborList_[n].length*sin(NeighborList_[n].angle));
+
+    if (neighborsCounter < 2)
+      return ERROR_NON_TRIANGULAR_MESH;
+
+
+    for(int j=0; j<neighborsCounter; j++)
+    {
+      /* Given the j-th neighbour of node i,
+            find the two neighbours by intersecting the
+            line through nodes i and j with all segments of the polygon
+            made by the neighbours. Take the two neighbours on
+            either side. Only one segment intersects this line. */
+      for(int k=0; k<neighborsCounter; k++)
+      {
+        int kk = (k == neighborsCounter-1 ? 0 : k+1);
+        if(k == j || kk == j) continue;
+
+        double cross1 = determinant(NeighborList_[j].uv,NeighborList_[k].uv);
+        double cross2 = determinant(NeighborList_[j].uv,NeighborList_[kk].uv);
+
+        if(cross1 * cross2 <= 0.0)
+        {
+          double tau0,tau1,tau2;
+          baryCoords0(NeighborList_[j].uv, NeighborList_[k].uv, NeighborList_[kk].uv, tau0, tau1, tau2);
+          NeighborList_[j].weight += tau0;
+          NeighborList_[k].weight  += tau1;
+          NeighborList_[kk].weight += tau2;
+          break;
+        }
+      }
+    }
+    // Scale the weights so that they sum to 1.
+    //  double ratio = 1.0 / (double)n;
+    double sum = 0;
+    for (int j = 0; j < neighborsCounter; ++j)
+      sum +=NeighborList_[j].weight;
+    double ratio = 1.0 / sum;
+    for(int j=0; j<neighborsCounter; j++)
+      NeighborList_[j].weight *= ratio;
+
+
+    // assign these weights to the edge pairs now
+    for(int n=0; n<neighborsCounter; n++) {
+      NT w_ij = -1.0 * NeighborList_[n].weight;
+      if(w_ij > 0)
+        w_ij *= -1.0;
+      w_ii -= w_ij;
+
+      // Get j index
+      const int j = get(vimap, NeighborList_[n].vertex);
+
+      // Set w_ij in matrix
+      A.set_coef(i,j, w_ij, true /*new*/);
+      A_prev.set_coef(i,j, w_ij, true);
+    }
+    // Set w_ii in matrix
+    A.set_coef(i,i, w_ii, true /*new*/);
+    return OK;
+
   }
 
+private:
+  TriangleMesh mesh;
+  Vertex_Double_map vL2Map;
+  Face_Double_map areaMap;
+  Face_Double_map fL2Map;
 
-  // compute_faceWise_L2
-  virtual double getfL2(Point_3 mesh_points[], Point_2 uv_points[]) const {
+  double getfL2(Point_3 mesh_points[], Point_2 uv_points[]) const {
     const double A = getA(uv_points);
     Point_3 Ss = getSs(mesh_points, uv_points, A);
     Point_3 St = getSt(mesh_points, uv_points, A);
@@ -259,52 +343,6 @@ protected:
     return sqrt((a+c)/2.0);
   }
 
-  double getA(Point_2 uv_points[]) const {
-    double A = (((uv_points[1].x()-uv_points[0].x())*(uv_points[2].y()-uv_points[0].y()))-((uv_points[2].x()-uv_points[0].x())*(uv_points[1].y()-uv_points[0].y())))/2;
-    if (A == 0.0)
-      return 1.0;
-    return A;
-  }
-
-  Point_3 getSs(Point_3 mesh_points[3], Point_2 uv_points[3],const double &A) const {
-    double dt0 = uv_points[1].y()-uv_points[2].y();
-    double dt1 = uv_points[2].y()-uv_points[0].y();
-    double dt2 = uv_points[0].y()-uv_points[1].y();
-    Point_3 Ss (
-        (mesh_points[0].x()*dt0 + mesh_points[1].x()*dt1 + mesh_points[2].x()*dt2 )/(2.0*A),
-        (mesh_points[0].y()*dt0 + mesh_points[1].y()*dt1 + mesh_points[2].y()*dt2 )/(2.0*A),
-        (mesh_points[0].z()*dt0 + mesh_points[1].z()*dt1 + mesh_points[2].z()*dt2 )/(2.0*A));
-    return Ss;
-  }
-
-  Point_3 getSt(Point_3 mesh_points[3], Point_2 uv_points[3],const double &A) const  {
-    double ds0 = uv_points[2].x()-uv_points[1].x();
-    double ds1 = uv_points[0].x()-uv_points[2].x();
-    double ds2 = uv_points[1].x()-uv_points[0].x();
-    Point_3 St (
-        (mesh_points[0].x()*ds0 + mesh_points[1].x()*ds1 +mesh_points[2].x()*ds2)/(2.0*A),
-        (mesh_points[0].y()*ds0 + mesh_points[1].y()*ds1 +mesh_points[2].y()*ds2)/(2.0*A),
-        (mesh_points[0].z()*ds0 + mesh_points[1].z()*ds1 +mesh_points[2].z()*ds2)/(2.0*A));
-    return St;
-  }
-
-  double innerProduct(const Point_3& pointA, const Point_3& pointB) const {
-    return ((pointA.x())*(pointB.x()) + (pointA.y())*(pointB.y()) + (pointA.z())*(pointB.z()));
-  }
-
-
-
-  // for compute_vertexWise_L2
-  virtual NT compute_vertexWise_L2(TriangleMesh& mesh,
-      Vertex_set& vertices) {
-    // update weights for vertices
-    vL2Map = get(Vertex_double_tag(), mesh);
-    BOOST_FOREACH(vertex_descriptor v, vertices)
-        put(vL2Map, v, getvL2(mesh, v));
-    return 1.0;
-  }
-
-  // compute sigma to improve weights over iterations
   double getvL2(const TriangleMesh& mesh, vertex_descriptor &vertex)  const {
     bool debug = false;
     if(vertex == 711111)
@@ -342,15 +380,118 @@ protected:
     return sqrt(varphi/localArea);
   }
 
+  /// Compute w_ij = (i, j), coefficient of matrix A for j neighbor vertex of i.
+  // These weights are shape preserving weights proposed in Floater1997
+  NT compute_w_ij(const TriangleMesh& mesh,
+      vertex_descriptor main_vertex_v_i,
+      vertex_around_target_circulator neighbor_vertex_v_j) const
+  {
+    const PPM ppmap = get(vertex_point, mesh);
+
+    const Point_3& position_v_i = get(ppmap, main_vertex_v_i);
+    const Point_3& position_v_j = get(ppmap, *neighbor_vertex_v_j);
+
+    // Compute the square norm of v_j -> v_i vector
+    Vector_3 edge = position_v_i - position_v_j;
+    double square_len = edge*edge;
+
+    // Compute cotangent of (v_k,v_j,v_i) corner (i.e. cotan of v_j corner)
+    // if v_k is the vertex before v_j when circulating around v_i
+    vertex_around_target_circulator previous_vertex_v_k = neighbor_vertex_v_j;
+    previous_vertex_v_k--;
+    const Point_3& position_v_k = get(ppmap, *previous_vertex_v_k);
+    NT cotg_psi_ij = internal::cotangent<Kernel>(position_v_k, position_v_j, position_v_i);
+    NT cotg_beta_ij = internal::cotangent<Kernel>(position_v_i, position_v_k, position_v_j);
+
+    // Compute cotangent of (v_i,v_j,v_l) corner (i.e. cotan of v_j corner)
+    // if v_l is the vertex after v_j when circulating around v_i
+    vertex_around_target_circulator next_vertex_v_l = neighbor_vertex_v_j;
+    next_vertex_v_l++;
+    const Point_3& position_v_l = get(ppmap,*next_vertex_v_l);
+    NT cotg_theta_ij = internal::cotangent<Kernel>(position_v_i, position_v_j, position_v_l);
+    NT cotg_alpha_ij = internal::cotangent<Kernel>(position_v_j, position_v_l, position_v_i);
+
+    NT weight = 0.0;
+    CGAL_assertion(square_len != 0.0); // two points are identical!
+    if(square_len != 0.0) {
+      weight = LAMDA * (cotg_beta_ij + cotg_alpha_ij);
+      weight += (1-LAMDA) * ((cotg_psi_ij + cotg_theta_ij) / square_len);
+    }
+    return weight;
+  }
+
+  struct NeighborList  {
+    vertex_descriptor vertex;
+    double angle;
+    double length;
+    Vector_3 vector;
+    Point_2 uv;
+    double weight;
+  };
+
+  void baryCoords0(Point_2& uv0, Point_2& uv1, Point_2& uv2, double& tau0, double& tau1, double& tau2)  {
+    double det0 = determinant(uv1,uv2);
+    double det1 = determinant(uv2,uv0);
+    double det2 = determinant(uv0,uv1);
+    double det3 = CGAL::determinant(Vector_2<Kernel>(uv1.x()-uv0.x(), uv1.y()-uv0.y()), Vector_2<Kernel>(uv2.x()-uv0.x(), uv2.y()-uv0.y()));
+    if(det3 <= 0.0)
+    {
+      //printf("Zero determinant in baryTriang.\n");
+      //printf("Setting it to 1.0.\n");
+      det3 = 1.0;
+    }
+
+    tau0 = det0 / det3;
+    tau1 = det1 / det3;
+    tau2 = det2 / det3;
+  }
+
+  double determinant(Point_2& v0, Point_2& v1)  {
+    return (v0.x()*v1.y() - v1.x()*v0.y());
+  }
+
+  double angle(Vector_3& v0, Vector_3& v1)  {
+    return std::acos(v0*v1/(CGAL::sqrt(v0*v0)*CGAL::sqrt(v1*v1)));
+  }
+
+    double getA(Point_2 uv_points[]) const {
+    double A = (((uv_points[1].x()-uv_points[0].x())*(uv_points[2].y()-uv_points[0].y()))-((uv_points[2].x()-uv_points[0].x())*(uv_points[1].y()-uv_points[0].y())))/2;
+    if (A == 0.0)
+      return 1.0;
+    return A;
+  }
+
+  Point_3 getSs(Point_3 mesh_points[3], Point_2 uv_points[3],const double &A) const {
+    double dt0 = uv_points[1].y()-uv_points[2].y();
+    double dt1 = uv_points[2].y()-uv_points[0].y();
+    double dt2 = uv_points[0].y()-uv_points[1].y();
+    Point_3 Ss (
+        (mesh_points[0].x()*dt0 + mesh_points[1].x()*dt1 + mesh_points[2].x()*dt2 )/(2.0*A),
+        (mesh_points[0].y()*dt0 + mesh_points[1].y()*dt1 + mesh_points[2].y()*dt2 )/(2.0*A),
+        (mesh_points[0].z()*dt0 + mesh_points[1].z()*dt1 + mesh_points[2].z()*dt2 )/(2.0*A));
+    return Ss;
+  }
+
+  Point_3 getSt(Point_3 mesh_points[3], Point_2 uv_points[3],const double &A) const  {
+    double ds0 = uv_points[2].x()-uv_points[1].x();
+    double ds1 = uv_points[0].x()-uv_points[2].x();
+    double ds2 = uv_points[1].x()-uv_points[0].x();
+    Point_3 St (
+        (mesh_points[0].x()*ds0 + mesh_points[1].x()*ds1 +mesh_points[2].x()*ds2)/(2.0*A),
+        (mesh_points[0].y()*ds0 + mesh_points[1].y()*ds1 +mesh_points[2].y()*ds2)/(2.0*A),
+        (mesh_points[0].z()*ds0 + mesh_points[1].z()*ds1 +mesh_points[2].z()*ds2)/(2.0*A));
+    return St;
+  }
+
+  double innerProduct(const Point_3& pointA, const Point_3& pointB) const {
+    return ((pointA.x())*(pointB.x()) + (pointA.y())*(pointB.y()) + (pointA.z())*(pointB.z()));
+  }
+
   virtual double compute_sig_ij(TriangleMesh& mesh, Vertex_point2_map &uvmap, vertex_descriptor v_i, vertex_descriptor v_j) {
     double out = (get(vL2Map,v_i)+get(vL2Map,v_j))/2.0;
     if(out <= 0.0)
       std::cout << "compute_sig_ij <= 0.0" << std::endl;
     return out;
-  }
-
-  virtual NT compute_borderLength_3D(TriangleMesh& mesh)  {
-    return 1.0;
   }
 
 };

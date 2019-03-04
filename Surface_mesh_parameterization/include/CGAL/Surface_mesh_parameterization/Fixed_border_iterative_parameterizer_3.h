@@ -30,7 +30,9 @@
 #define VDEBUG2 7182
 #define VDEBUG3 7169
 #define VDEBUGN 999999999
-#define DEBUG 0
+#define DEBUG_L0 1
+#define DEBUG_L1 0
+
 #include <CGAL/license/Surface_mesh_parameterization.h>
 
 #include <CGAL/disable_warnings.h>
@@ -173,11 +175,13 @@ protected:
 
   typedef boost::unordered_set<vertex_descriptor>                   Vertex_set;
   typedef CGAL::dynamic_face_property_t<double>                                     Face_double_tag;
-  typedef typename boost::property_map<TriangleMesh, Face_double_tag>::const_type   Face_Double_map;
+  typedef typename boost::property_map<TriangleMesh, Face_double_tag>::type         Face_Double_map;
   typedef CGAL::dynamic_vertex_property_t<double>                                   Vertex_double_tag;
   typedef typename boost::property_map<TriangleMesh, Vertex_double_tag>::const_type Vertex_Double_map;
-  typedef CGAL::dynamic_vertex_property_t<Point_2>                                   Vertex_point2_tag;
-  typedef typename boost::property_map<TriangleMesh, Vertex_point2_tag>::type Vertex_point2_map;
+  typedef CGAL::dynamic_vertex_property_t<int>                                      Vertex_int_tag;
+  typedef typename boost::property_map<TriangleMesh, Vertex_int_tag>::const_type    Vertex_Int_map;
+  typedef CGAL::dynamic_vertex_property_t<Point_2>                                  Vertex_point2_tag;
+  typedef typename boost::property_map<TriangleMesh, Vertex_point2_tag>::const_type Vertex_point2_map;
 
   // Public operations
 public:
@@ -226,7 +230,7 @@ public:
   Error_code parameterize(TriangleMesh& mesh,
       halfedge_descriptor bhd,
       VertexUVmap uvmap1,
-      VertexIndexMap vimap,
+      VertexIndexMap vimap1,
       VertexParameterizedMap vpmap,
       int& iterations,
       double& error)
@@ -249,7 +253,7 @@ public:
       return ERROR_EMPTY_MESH;
 
     // Compute (u,v) for border vertices and mark them as "parameterized"
-    status = get_border_parameterizer().parameterize(mesh, bhd, uvmap1, vimap, vpmap);
+    status = get_border_parameterizer().parameterize(mesh, bhd, uvmap1, vimap1, vpmap);
     if (status != OK)
       return status;
 
@@ -266,12 +270,12 @@ public:
     // @todo Fixed_border_iterative_parameterizer_3 should remove border vertices
     // from the linear systems in order to have a symmetric positive definite
     // matrix for Tutte Barycentric Mapping and Discrete Conformal Map algorithms.
-    initialize_system_from_mesh_border(A, Bu, Bv, mesh, bhd, uvmap1, vimap);
+    initialize_system_from_mesh_border(A, Bu, Bv, mesh, bhd, uvmap1, vimap1);
 
-    if(DEBUG) {
-      printMatrix(vertices, vimap, A, "A");
-      printVector(vertices, vimap, Bu, "Bu");
-      printVector(vertices, vimap, Bv, "Bv");
+    if(DEBUG_L1) {
+      printMatrix(vertices, vimap1, A, "A");
+      printVector(vertices, vimap1, Bu, "Bu");
+      printVector(vertices, vimap1, Bv, "Bv");
     }
     // Fill the matrix for the inner vertices v_i: compute A's coefficient
     // w_ij for each neighbor j; then w_ii = - sum of w_ijs
@@ -279,10 +283,12 @@ public:
     BOOST_FOREACH(vertex_descriptor v, vertices_around_face(bhd,mesh))
     main_border.insert(v);
 
-    // create a new uvmap
+    // create new uvmap & vimap
     Vertex_point2_map uvmap = get(Vertex_point2_tag(),mesh);
+    Vertex_Int_map vimap = get(Vertex_int_tag(),mesh);
     BOOST_FOREACH(vertex_descriptor v, vertices)  {
       put(uvmap, v, get(uvmap1, v));
+      put(vimap, v, get(vimap1, v));
     }
 
     // update last best uvmap wrt the border
@@ -298,15 +304,15 @@ public:
     compute_borderLength_3D(mesh);
 
     // iterate it with the new weights
-    if(DEBUG)
-    std::cout << std::endl;
+    if(DEBUG_L0)
+      std::cout << std::endl;
     int i=0;
     while (i<=iterations) {
       //Face_Double_map
       //fL2Map = get(Face_double_tag(), mesh);
       //Vertex_Double_map
       //vL2Map = get(Vertex_double_tag(), mesh);
-      if(DEBUG)
+      if(DEBUG_L0)
         std::cout << "Iteration " << i << std::flush;
       if (i!=0) {
         compute_faceWise_L2(mesh, uvmap);
@@ -331,7 +337,7 @@ public:
         }
       }
 
-      if(DEBUG) {
+      if(DEBUG_L1) {
         print(A, Xu, Bu);
         std::cout << std::endl;
         print(A, Xv, Bv);
@@ -388,13 +394,13 @@ public:
         }
       }
       err[i] = areaDist(mesh, vertices, main_border, uvmap);
-      if(DEBUG)
+      if(DEBUG_L0)
         std::cout << " err " << err[i] << std::flush;
 
       if(err[i] <= err[lastBesti]) {
         updateUVMAP(vertices, main_border, uvmap);
         lastBesti = i;
-        if(DEBUG)
+        if(DEBUG_L0)
           std::cout << " *****" << std::endl;
       }
       else if (err[i]>100)  {
@@ -418,6 +424,7 @@ public:
      */
     BOOST_FOREACH(vertex_descriptor v, vertices)  {
       put(uvmap1, v, get(lastBestuvmap, v));
+      put(vimap1, v, get(vimap, v));
     }
     iterations = lastBesti;
     error = err[lastBesti];
@@ -513,69 +520,14 @@ protected:
       vertex_around_target_circulator neighbor_vertex_v_j) const
   = 0;
 
-
-
-  /*
-  /// Compute sig_ij, coefficient for modifying A iteratively.
-  /// \param mesh a triangulated surface.
-  /// \param main_vertex_v_i the vertex of `mesh` with index `i`
-  /// \param neighbor_vertex_v_j the vertex of `mesh` with index `j`
-  template <typename VertexUVmap>
-  virtual NT compute_sig_ij(const TriangleMesh& mesh,
-      VertexUVmap &uvmap,
-      vertex_descriptor main_vertex_v_i,
-      vertex_around_target_circulator neighbor_vertex_v_j) const
-  = 0;
-   */
-  /// Compute the line i of matrix A for i inner vertex:
-  /// - call compute_w_ij() to compute the A coefficient w_ij for each neighbor v_j.
-  /// - compute w_ii = - sum of w_ijs.
-  ///
-  /// \pre Vertices must be indexed.
-  /// \pre Vertex i musn't be already parameterized.
-  /// \pre Line i of A must contain only zeros.
-  // TODO: check if this must be virtual
-  // virtual
-  template <typename VertexIndexMap>
-  Error_code setup_inner_vertex_relations(Matrix& A,
+  virtual Error_code setup_inner_vertex_relations(Matrix& A,
       Matrix& A_prev,
       Vector&,
       Vector&,
       const TriangleMesh& mesh,
       vertex_descriptor vertex,
-      VertexIndexMap vimap) const
-  {
-    int i = get(vimap,vertex);
+      Vertex_Int_map& vimap) = 0;
 
-    // circulate over vertices around 'vertex' to compute w_ii and w_ijs
-    NT w_ii = 0;
-    int vertexIndex = 0;
-
-    vertex_around_target_circulator v_j(halfedge(vertex, mesh), mesh), end = v_j;
-    CGAL_For_all(v_j, end){
-      // Call to virtual method to do the actual coefficient computation
-      NT w_ij = -1.0 * compute_w_ij(mesh, vertex, v_j);
-      if(w_ij > 0)
-        w_ij *= -1.0;
-      // w_ii = - sum of w_ijs
-      w_ii -= w_ij;
-
-      // Get j index
-      int j = get(vimap, *v_j);
-
-      // Set w_ij in matrix
-      A.set_coef(i,j, w_ij, true /*new*/);
-      A_prev.set_coef(i,j, w_ij, true);
-      vertexIndex++;
-    }
-
-    if (vertexIndex < 2)
-      return ERROR_NON_TRIANGULAR_MESH;
-
-    // Set w_ii in matrix
-    A.set_coef(i,i, w_ii, true /*new*/);
-    return OK;
-  }
 
   /// Compute the line i of matrix A for i inner vertex:
   /// - call compute_w_ij() to compute the A coefficient w_ij for each neighbor v_j.
