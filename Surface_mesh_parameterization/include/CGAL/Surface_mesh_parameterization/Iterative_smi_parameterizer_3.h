@@ -221,39 +221,28 @@ protected:
       vertex_descriptor vertex,
       Vertex_Int_map& vimap)
   {
-    const int i = get(vimap,vertex);
 
     // circulate over vertices around 'vertex' to compute w_ii and w_ijs
-    NT w_ii = 0;
     vertex_around_target_circulator v_j(halfedge(vertex, mesh), mesh), end_v_j = v_j;
     std::vector<NeighborList> NeighborList_;
-    /*
-      std::vector<std::tuple<vertex_descriptor, double, Point_2> >neighbors;
-      std::vector<vertex_descriptor> neighborsVertex;
-      std::vector<Vector_3> neighborsVector;
-      std::vector<double> neighborsLength;
-      std::vector<double> neighborsAngle;
-     */
     int neighborsCounter = 0;
     double theta_sum = 0.0;
+    // create NeighborList vector with vertex and vector
     CGAL_For_all(v_j, end_v_j)  {
       NeighborList NL;
       NL.vertex = *v_j;
       NL.vector = Vector_3(mesh.point(vertex),mesh.point(*v_j));
       NL.length = sqrt(NL.vector.squared_length());
-      double theta;
-      if(NeighborList_.empty())
-        theta = 0.0;
-      else
-        theta = angle(NL.vector,NeighborList_[neighborsCounter-1].vector);
-      NL.angle = theta;
-      theta_sum += theta;
       NeighborList_.push_back(NL);
       neighborsCounter++;
-      //     neighborsVertex.push_back(*v_j);
-      //     neighborsVector.push_back(V);
-      //     neighborsLength.push_back(sqrt(V.squared_length()));
-      //      neighborsAngle.push_back(angle);
+    }
+
+    // compute angles
+    for(int n=0; n<neighborsCounter; n++) {
+      int n_prev = (n==0 ? neighborsCounter-1 : n-1);
+      double theta = angle(NeighborList_[n].vector,NeighborList_[n_prev].vector);
+      NeighborList_[n].angle = theta;
+      theta_sum += theta;
     }
 
     // Normalise the angle
@@ -261,7 +250,8 @@ protected:
     factor *= M_PI;
     for(int n=0; n<neighborsCounter; n++)
       NeighborList_[n].angle *= factor;
-    assert(NeighborList_[0].angle == 0.0);
+
+    NeighborList_[0].angle = 0.0;
     for(int n=1; n<neighborsCounter; n++)
       NeighborList_[n].angle += NeighborList_[n-1].angle;
     for(int n=0; n<neighborsCounter; n++)
@@ -308,6 +298,8 @@ protected:
 
 
     // assign these weights to the edge pairs now
+    NT w_ii = 0;
+    const int i = get(vimap,vertex);
     for(int n=0; n<neighborsCounter; n++) {
       NT w_ij = -1.0 * NeighborList_[n].weight;
       if(w_ij > 0)
@@ -454,7 +446,7 @@ private:
     return std::acos(v0*v1/(CGAL::sqrt(v0*v0)*CGAL::sqrt(v1*v1)));
   }
 
-    double getA(Point_2 uv_points[]) const {
+  double getA(Point_2 uv_points[]) const {
     double A = (((uv_points[1].x()-uv_points[0].x())*(uv_points[2].y()-uv_points[0].y()))-((uv_points[2].x()-uv_points[0].x())*(uv_points[1].y()-uv_points[0].y())))/2;
     if (A == 0.0)
       return 1.0;
