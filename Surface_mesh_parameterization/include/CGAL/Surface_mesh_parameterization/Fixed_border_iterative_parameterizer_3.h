@@ -303,6 +303,7 @@ public:
     compute_faceArea(mesh);
     compute_borderLength_3D(mesh);
     double gamma = 1;
+    bool isChanged = false;
     // iterate it with the new weights
     if(DEBUG_L0)
       std::cout << std::endl;
@@ -400,13 +401,22 @@ public:
       if(err[i] <= err[lastBesti]) {
         updateUVMAP(vertices, main_border, uvmap);
         lastBesti = i;
+        isChanged = false;
         if(DEBUG_L0)
-          std::cout << " *****" << std::endl;
+          std::cout << " *****" << std::flush;
       }
       else if (err[i]>100)  {
         break;
       }
+      else  {
+        if(!isChanged)  {
+          gamma /= 2;
+          isChanged = true;
+        }
+      }
+
       i++;
+      std::cout << std::endl;
     }
 
     // Check postconditions
@@ -630,32 +640,39 @@ protected:
   }
 
   template <typename VertexUVmap>
-  double areaDist(const TriangleMesh& mesh, Vertex_set &vertices,
+  double areaDist(TriangleMesh& mesh, Vertex_set &vertices,
       boost::unordered_set<vertex_descriptor> &main_border,
       VertexUVmap &uvmap)  {
-    // iterate fpr all inner vertices and for each vertex
-    std::vector<double> area_3D;
-    std::vector<double> area_2D;
-    std::vector<double> area_dist;
+    // iterate for all inner vertices and for each vertex
 
-    double A_3D = Polygon_mesh_processing::area(mesh);
-    double A_2D = 1.;
+    Face_Double_map area_3DMap = get(Face_double_tag(), mesh);
+    Face_Double_map area_2DMap = get(Face_double_tag(), mesh);;
+    std::vector<double> area_dist;
+    double A_3D = 0.0;
+    double A_2D = 0.0;
 
     BOOST_FOREACH(face_descriptor fd, faces(mesh))  {
-      double a_2D = 0;
-      double a_3D = 0;
-      a_3D = (Polygon_mesh_processing::face_area(fd, mesh)/A_3D);
+      put(area_3DMap, fd, Polygon_mesh_processing::face_area(fd, mesh));
+
       // get area in parameterised mesh
-      // iterate for all the vertices of this face and compute area
       std::vector<Point_2> uv_points;
       BOOST_FOREACH(vertex_descriptor vd, vertices_around_face(halfedge(fd, mesh), mesh))  {
         uv_points.push_back(get(uvmap,vd));
       }
-      a_2D = abs(CGAL::area(uv_points[0],uv_points[1],uv_points[2]))/A_2D;
-      area_3D.push_back(a_3D);
-      area_2D.push_back(a_2D);
-      area_dist.push_back(abs(a_3D - a_2D));
+      put(area_2DMap, fd, abs(CGAL::area(uv_points[0],uv_points[1],uv_points[2])));
     }
+
+    BOOST_FOREACH(face_descriptor fd, faces(mesh))  {
+      A_3D += get(area_3DMap, fd);
+      A_2D += get(area_2DMap, fd);
+    }
+
+    BOOST_FOREACH(face_descriptor fd, faces(mesh))  {
+      double a_3D = get(area_3DMap, fd);
+      double a_2D = get(area_2DMap, fd);
+      area_dist.push_back(abs(a_3D/A_3D - a_2D/A_2D));
+    }
+
     return sum_vector(area_dist);
   }
 
