@@ -319,6 +319,13 @@ protected:
 
   }
 
+  virtual double compute_sig_ij(TriangleMesh& mesh, Vertex_point2_map &uvmap, vertex_descriptor v_i, vertex_descriptor v_j, double& gamma) {
+    double out = (pow(get(vL2Map,v_i),gamma)+pow(get(vL2Map,v_j),gamma))/2.0;
+    if(out <= 0.0)
+      std::cout << "compute_sig_ij <= 0.0" << std::endl;
+    return out;
+  }
+
 private:
   TriangleMesh mesh;
   Vertex_Double_map vL2Map;
@@ -477,13 +484,6 @@ private:
 
   double innerProduct(const Point_3& pointA, const Point_3& pointB) const {
     return ((pointA.x())*(pointB.x()) + (pointA.y())*(pointB.y()) + (pointA.z())*(pointB.z()));
-  }
-
-  virtual double compute_sig_ij(TriangleMesh& mesh, Vertex_point2_map &uvmap, vertex_descriptor v_i, vertex_descriptor v_j) {
-    double out = (get(vL2Map,v_i)+get(vL2Map,v_j))/2.0;
-    if(out <= 0.0)
-      std::cout << "compute_sig_ij <= 0.0" << std::endl;
-    return out;
   }
 
 };

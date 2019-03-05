@@ -230,6 +230,11 @@ protected:
     return OK;
   }
 
+  virtual double compute_sig_ij(TriangleMesh& mesh, Vertex_point2_map &uvmap, vertex_descriptor v_i, vertex_descriptor v_j, double& gamma) {
+    //return (nedgeLength_2D(uvmap, v_i, v_j)/nedgeLength_3D(mesh, v_i, v_j));
+    return pow(nedgeLength_3D(mesh, v_i, v_j)/nedgeLength_2D(uvmap, v_i, v_j),gamma);
+  }
+
 
 private:
   double borderLength_3D;
@@ -274,11 +279,6 @@ private:
       weight += (1-LAMDA) * ((cotg_psi_ij + cotg_theta_ij) / square_len);
     }
     return weight;
-  }
-
-  double compute_sig_ij(TriangleMesh& mesh, Vertex_point2_map &uvmap, vertex_descriptor v_i, vertex_descriptor v_j) {
-    //return (nedgeLength_2D(uvmap, v_i, v_j)/nedgeLength_3D(mesh, v_i, v_j));
-    return (nedgeLength_3D(mesh, v_i, v_j)/nedgeLength_2D(uvmap, v_i, v_j));
   }
 
   double nedgeLength_3D(TriangleMesh& mesh, vertex_descriptor v_i, vertex_descriptor v_j) {

@@ -302,7 +302,7 @@ public:
     int lastBesti = 0;
     compute_faceArea(mesh);
     compute_borderLength_3D(mesh);
-
+    double gamma = 1;
     // iterate it with the new weights
     if(DEBUG_L0)
       std::cout << std::endl;
@@ -330,7 +330,7 @@ public:
               return status;
           }
           else  {
-            status = setup_iter_inner_vertex_relations(A, A_prev, Bu, Bv, mesh, v, vimap, uvmap);
+            status = setup_iter_inner_vertex_relations(A, A_prev, Bu, Bv, mesh, v, vimap, uvmap, gamma);
             if(status != OK)
               return status;
           }
@@ -462,7 +462,6 @@ public:
   // Protected operations
 protected:
   Vertex_point2_map lastBestuvmap;
-  double gamma = 1;
   int LScounter = 0;
 
 
@@ -546,7 +545,8 @@ protected:
       TriangleMesh& mesh,
       vertex_descriptor vertex,
       VertexIndexMap vimap,
-      Vertex_point2_map &uvmap)
+      Vertex_point2_map &uvmap,
+      double& gamma)
   {
 
     if(vertex == VDEBUGN)
@@ -563,7 +563,7 @@ protected:
       int j = get(vimap, *v_j);
       // Call to virtual method to do the actual coefficient computation
       //NT w_ij = A_prev.get_coef(i,j) / compute_sig_ij(vertex, *v_j) / gamma;
-      NT w_ij = A_prev.get_coef(i,j) / pow(compute_sig_ij(mesh, uvmap, vertex, *v_j),gamma);
+      NT w_ij = A_prev.get_coef(i,j) / compute_sig_ij(mesh, uvmap, vertex, *v_j, gamma);
 
       // w_ii = - sum of w_ijs
       w_ii -= w_ij;
@@ -585,7 +585,7 @@ protected:
   virtual NT compute_faceArea(TriangleMesh& mesh) = 0;
   virtual NT compute_faceWise_L2(TriangleMesh& mesh, Vertex_point2_map &uvmap) = 0;
   virtual NT compute_vertexWise_L2(TriangleMesh& mesh, Vertex_set& vertices) = 0;
-  virtual double compute_sig_ij(TriangleMesh& mesh, Vertex_point2_map &uvmap, vertex_descriptor v_i, vertex_descriptor v_j) = 0;
+  virtual double compute_sig_ij(TriangleMesh& mesh, Vertex_point2_map &uvmap, vertex_descriptor v_i, vertex_descriptor v_j, double& gamma) = 0;
   virtual NT compute_borderLength_3D(TriangleMesh& mesh) = 0;
 
 
