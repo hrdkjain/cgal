@@ -235,6 +235,9 @@ protected:
     return pow(nedgeLength_3D(mesh, v_i, v_j)/nedgeLength_2D(uvmap, v_i, v_j),gamma);
   }
 
+  virtual double distError(TriangleMesh& mesh)  {
+    return 0;
+  }
 
 private:
   double borderLength_3D;

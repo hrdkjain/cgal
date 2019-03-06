@@ -315,11 +315,6 @@ public:
       //vL2Map = get(Vertex_double_tag(), mesh);
       if(DEBUG_L0)
         std::cout << "Iteration " << i << std::flush;
-      if (i!=0) {
-        compute_faceWise_L2(mesh, uvmap);
-        compute_vertexWise_L2(mesh, vertices);
-        //        compute_edgeLength_2D(mesh, uvmap);
-      }
       // update weights for inner vertices
       BOOST_FOREACH(vertex_descriptor v, vertices)  {
         // inner vertices only
@@ -394,7 +389,14 @@ public:
           put(vpmap,v,true);
         }
       }
+
+      compute_faceWise_L2(mesh, uvmap);
+      compute_vertexWise_L2(mesh, vertices);
+      //        compute_edgeLength_2D(mesh, uvmap);
+
       err[i] = areaDist(mesh, vertices, main_border, uvmap);
+      //err[i] = distError(mesh);
+
       if(DEBUG_L0)
         std::cout << " err " << err[i] << std::flush;
 
@@ -597,13 +599,19 @@ protected:
   virtual NT compute_vertexWise_L2(TriangleMesh& mesh, Vertex_set& vertices) = 0;
   virtual double compute_sig_ij(TriangleMesh& mesh, Vertex_point2_map &uvmap, vertex_descriptor v_i, vertex_descriptor v_j, double& gamma) = 0;
   virtual NT compute_borderLength_3D(TriangleMesh& mesh) = 0;
+  virtual double distError(TriangleMesh& mesh)=0;
 
-
-  // Measure parameterisation distortion
+  // Measure L2 stretch
   template <typename VertexUVmap>
-  double distError(const TriangleMesh& mesh, Vertex_set &vertices,
+  double distError1(const TriangleMesh& mesh, Vertex_set &vertices,
       boost::unordered_set<vertex_descriptor> &main_border,
       VertexUVmap &uvmap)  {
+
+    //    double car
+    BOOST_FOREACH(face_descriptor fd, faces(mesh))  {
+
+    }
+
     // iterate fpr all inner vertices and for each vertex
     std::vector<double> area_3D;
     std::vector<double> area_2D;
@@ -648,32 +656,36 @@ protected:
     Face_Double_map area_3DMap = get(Face_double_tag(), mesh);
     Face_Double_map area_2DMap = get(Face_double_tag(), mesh);;
     std::vector<double> area_dist;
+    std::vector<face_descriptor> innerFaces;
     double A_3D = 0.0;
     double A_2D = 0.0;
-
+    /*
     BOOST_FOREACH(face_descriptor fd, faces(mesh))  {
-      put(area_3DMap, fd, Polygon_mesh_processing::face_area(fd, mesh));
-
-      // get area in parameterised mesh
-      std::vector<Point_2> uv_points;
-      BOOST_FOREACH(vertex_descriptor vd, vertices_around_face(halfedge(fd, mesh), mesh))  {
-        uv_points.push_back(get(uvmap,vd));
-      }
-      put(area_2DMap, fd, abs(CGAL::area(uv_points[0],uv_points[1],uv_points[2])));
+      if (!mesh.is_border(target(mesh,fd)))
+        innerFaces.push_back(fd);
     }
+     */  BOOST_FOREACH(face_descriptor fd, faces(mesh))  {
+       put(area_3DMap, fd, Polygon_mesh_processing::face_area(fd, mesh));
+       // get area in parameterised mesh
+       std::vector<Point_2> uv_points;
+       BOOST_FOREACH(vertex_descriptor vd, vertices_around_face(halfedge(fd, mesh), mesh))  {
+         uv_points.push_back(get(uvmap,vd));
+       }
+       put(area_2DMap, fd, abs(CGAL::area(uv_points[0],uv_points[1],uv_points[2])));
+     }
 
-    BOOST_FOREACH(face_descriptor fd, faces(mesh))  {
-      A_3D += get(area_3DMap, fd);
-      A_2D += get(area_2DMap, fd);
-    }
+     BOOST_FOREACH(face_descriptor fd, faces(mesh))  {
+       A_3D += get(area_3DMap, fd);
+       A_2D += get(area_2DMap, fd);
+     }
 
-    BOOST_FOREACH(face_descriptor fd, faces(mesh))  {
-      double a_3D = get(area_3DMap, fd);
-      double a_2D = get(area_2DMap, fd);
-      area_dist.push_back(abs(a_3D/A_3D - a_2D/A_2D));
-    }
+     BOOST_FOREACH(face_descriptor fd, faces(mesh))  {
+       double a_3D = get(area_3DMap, fd);
+       double a_2D = get(area_2DMap, fd);
+       area_dist.push_back(abs(a_3D/A_3D - a_2D/A_2D));
+     }
 
-    return sum_vector(area_dist);
+     return sum_vector(area_dist);
   }
 
   template <typename T>

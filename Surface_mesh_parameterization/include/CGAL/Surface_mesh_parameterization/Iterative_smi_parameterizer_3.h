@@ -326,6 +326,17 @@ protected:
     return out;
   }
 
+  virtual double distError(TriangleMesh& mesh)  {
+    double varphi = 0.0;
+    double localArea = 0.0;
+    BOOST_FOREACH(face_descriptor fd, faces(mesh))  {
+      varphi += get(fL2Map,fd)*get(areaMap,fd);
+      localArea += get(areaMap,fd);
+    }
+    double err = sqrt(varphi/localArea);
+    return err;
+  }
+
 private:
   TriangleMesh mesh;
   Vertex_Double_map vL2Map;
