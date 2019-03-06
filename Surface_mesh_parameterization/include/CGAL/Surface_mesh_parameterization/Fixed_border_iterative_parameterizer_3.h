@@ -558,7 +558,7 @@ protected:
       vertex_descriptor vertex,
       VertexIndexMap vimap,
       Vertex_point2_map &uvmap,
-      double& gamma)
+      double gamma)
   {
 
     if(vertex == VDEBUGN)
@@ -575,7 +575,7 @@ protected:
       int j = get(vimap, *v_j);
       // Call to virtual method to do the actual coefficient computation
       //NT w_ij = A_prev.get_coef(i,j) / compute_sig_ij(vertex, *v_j) / gamma;
-      NT w_ij = A_prev.get_coef(i,j) / compute_sig_ij(mesh, uvmap, vertex, *v_j, gamma);
+      NT w_ij = A_prev.get_coef(i,j) / pow(compute_sig_ij(mesh, uvmap, vertex, *v_j, 1.0),gamma);
 
       // w_ii = - sum of w_ijs
       w_ii -= w_ij;
@@ -597,7 +597,7 @@ protected:
   virtual NT compute_faceArea(TriangleMesh& mesh) = 0;
   virtual NT compute_faceWise_L2(TriangleMesh& mesh, Vertex_point2_map &uvmap) = 0;
   virtual NT compute_vertexWise_L2(TriangleMesh& mesh, Vertex_set& vertices) = 0;
-  virtual double compute_sig_ij(TriangleMesh& mesh, Vertex_point2_map &uvmap, vertex_descriptor v_i, vertex_descriptor v_j, double& gamma) = 0;
+  virtual double compute_sig_ij(TriangleMesh& mesh, Vertex_point2_map &uvmap, vertex_descriptor v_i, vertex_descriptor v_j, double gamma) = 0;
   virtual NT compute_borderLength_3D(TriangleMesh& mesh) = 0;
   virtual double distError(TriangleMesh& mesh)=0;
 

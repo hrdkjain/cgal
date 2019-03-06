@@ -230,7 +230,7 @@ protected:
     return OK;
   }
 
-  virtual double compute_sig_ij(TriangleMesh& mesh, Vertex_point2_map &uvmap, vertex_descriptor v_i, vertex_descriptor v_j, double& gamma) {
+  virtual double compute_sig_ij(TriangleMesh& mesh, Vertex_point2_map &uvmap, vertex_descriptor v_i, vertex_descriptor v_j, double gamma) {
     //return (nedgeLength_2D(uvmap, v_i, v_j)/nedgeLength_3D(mesh, v_i, v_j));
     return pow(nedgeLength_3D(mesh, v_i, v_j)/nedgeLength_2D(uvmap, v_i, v_j),gamma);
   }

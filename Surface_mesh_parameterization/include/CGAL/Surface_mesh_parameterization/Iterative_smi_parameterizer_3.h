@@ -319,7 +319,7 @@ protected:
 
   }
 
-  virtual double compute_sig_ij(TriangleMesh& mesh, Vertex_point2_map &uvmap, vertex_descriptor v_i, vertex_descriptor v_j, double& gamma) {
+  virtual double compute_sig_ij(TriangleMesh& mesh, Vertex_point2_map &uvmap, vertex_descriptor v_i, vertex_descriptor v_j, double gamma) {
     double out = (pow(get(vL2Map,v_i),gamma)+pow(get(vL2Map,v_j),gamma))/2.0;
     if(out <= 0.0)
       std::cout << "compute_sig_ij <= 0.0" << std::endl;
