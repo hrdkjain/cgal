@@ -425,7 +425,11 @@ public:
     // AF status = check_parameterize_postconditions(amesh, A, Bu, Bv);
     if(status != OK)
       return status;
-    /*
+    if(i==0 && i!=iterations)
+      // means that the computation terminated for the first iteration may be because system was unsolvable
+      return ERROR_CANNOT_SOLVE_LINEAR_SYSTEM;
+
+          /*
     // update the actual uvmap with the lastBestuvmap
     BOOST_FOREACH(vertex_descriptor v, vertices)  {
       // border vertices only
@@ -433,7 +437,7 @@ public:
         put(uvmap, v, get(lastBestuvmap, v));
       }
     }
-     */
+           */
     BOOST_FOREACH(vertex_descriptor v, vertices)  {
       put(uvmap1, v, get(lastBestuvmap, v));
       put(vimap1, v, get(vimap, v));
